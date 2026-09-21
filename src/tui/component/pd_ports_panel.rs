@@ -171,9 +171,12 @@ impl PdPortsPanelComponent {
         info: &PdPortInfo,
     ) {
         frame.render_widget(Paragraph::new("Voltage now"), key_area);
+        let value = match info.voltage_now {
+            Some(voltage) => format!("{:.1} V", voltage),
+            None => "N/A".to_string(),
+        };
         frame.render_widget(
-            Paragraph::new(format!("{:.1} V", info.voltage_now))
-                .style(Style::default().fg(theme.informative_text)),
+            Paragraph::new(value).style(Style::default().fg(theme.informative_text)),
             value_area,
         );
     }

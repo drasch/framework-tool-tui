@@ -89,7 +89,7 @@ pub struct PdPortInfo {
     pub dualrole: String,
     pub charging_type: String,
     pub max_power: u32,
-    pub voltage_now: f32,
+    pub voltage_now: Option<f32>,
     pub voltage_max: f32,
     pub current_limit: u16,
     pub current_max: u16,
@@ -318,8 +318,15 @@ fn pd_port_info(pd_port: &UsbPdPowerInfo) -> PdPortInfo {
         UsbChargingType::Unknown => "Unknown".to_string(),
     };
     let max_power = pd_port.max_power / 1000;
-    let voltage_now = pd_port.meas.voltage_now as f32 / 1000.0;
     let voltage_max = pd_port.meas.voltage_max as f32 / 1000.0;
+    // On mainboards without VBUS measurement (e.g. Laptop 13 Pro) the EC
+    // reports 0 mV for `voltage_now` on a charging sink port; there 0 means
+    // "unknown", not "0 V". See https://github.com/grouzen/framework-tool-tui/issues/139.
+    let voltage_now = if pd_port.role == UsbPowerRoles::Sink && pd_port.meas.voltage_now == 0 {
+        None
+    } else {
+        Some(pd_port.meas.voltage_now as f32 / 1000.0)
+    };
 
     PdPortInfo {
         role,
@@ -357,6 +364,39 @@ mod tests {
                 })
             })
             .collect()
+    }
+
+    fn pd_port(role: UsbPowerRoles, voltage_now: u16) -> UsbPdPowerInfo {
+        UsbPdPowerInfo {
+            role,
+            charging_type: UsbChargingType::None,
+            dualrole: false,
+            meas: UsbChargeMeasures {
+                voltage_max: 0,
+                voltage_now,
+                current_max: 0,
+                current_lim: 0,
+            },
+            max_power: 0,
+        }
+    }
+
+    #[test]
+    fn pd_port_info_reports_unknown_voltage_for_charging_sink_without_vbus_measure() {
+        let info = pd_port_info(&pd_port(UsbPowerRoles::Sink, 0));
+
+        assert_eq!(info.voltage_now, None);
+    }
+
+    #[test]
+    fn pd_port_info_reports_measured_voltage_now() {
+        let sink = pd_port_info(&pd_port(UsbPowerRoles::Sink, 20000));
+        let source = pd_port_info(&pd_port(UsbPowerRoles::Source, 5000));
+        let disconnected = pd_port_info(&pd_port(UsbPowerRoles::Disconnected, 0));
+
+        assert_eq!(sink.voltage_now, Some(20.0));
+        assert_eq!(source.voltage_now, Some(5.0));
+        assert_eq!(disconnected.voltage_now, Some(0.0));
     }
 
     fn slot_power(pd_port: &Option<PdPortInfo>) -> u32 {
